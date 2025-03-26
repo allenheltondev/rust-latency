@@ -5,7 +5,7 @@ Description: >
 
 Globals:
   Function:
-    MemorySize: 128
+    MemorySize: 1024
     Architectures: ["arm64"]
     Runtime: provided.al2023
     Handler: bootstrap

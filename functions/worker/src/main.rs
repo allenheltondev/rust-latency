@@ -33,6 +33,32 @@ async fn invoke_direct(lambda_client: Arc<LambdaClient>, function_name: String, 
     }
 }
 
+async fn invoke_momento(client: Arc<Client>, track_metrics: bool) {
+  let start = Instant::now();
+
+  let url = "https://api.cache.developer-kenny-dev.preprod.a.momentohq.com/functions/fls/calc";
+  let payload = json!({
+      "a": 10,
+      "b": 20,
+      "c": "*"
+  });
+
+  let res = client
+      .post(url)
+      .header("authorization", "") // 🔁 Replace with real key if needed
+      .json(&payload)
+      .send()
+      .await;
+
+  let latency = start.elapsed().as_secs_f64() * 1000.0;
+  let success = res.as_ref().map(|r| r.status().is_success()).unwrap_or(false);
+
+  if track_metrics {
+      emit_emf_metric("momento_latency", latency, success);
+  }
+}
+
+
 async fn invoke_http(client: Arc<Client>, url: String, method_name: &str, track_metrics: bool) {
     let start = Instant::now();
     let res = client.get(&url).send().await;
@@ -92,8 +118,8 @@ async fn handler(event: LambdaEvent<WorkerInput>) -> Result<ApiGatewayProxyRespo
             let f = tokio::spawn(invoke_http(http_client.clone(), lambda_url.clone(), "lambda_function_url", track_metrics));
             let h = tokio::spawn(invoke_http(http_client.clone(), http_api_url.clone(), "http_api_endpoint", track_metrics));
             let r = tokio::spawn(invoke_http(http_client.clone(), rest_api_url.clone(), "rest_api_endpoint", track_metrics));
-
-            let _ = tokio::try_join!(d, f, h, r);
+            let momento = tokio::spawn(invoke_momento(http_client.clone(), track_metrics));
+            let _ = tokio::try_join!(d, f, h, r, momento);
         });
 
         handles.push(handle);
