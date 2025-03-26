@@ -1,0 +1,91 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  A basic Rust Lambda Hello World Function with an additional Go function to track latency.
+
+Globals:
+  Function:
+    MemorySize: 128
+    Architectures: ["arm64"]
+    Runtime: provided.al2023
+    Handler: bootstrap
+    Timeout: 300
+    Environment:
+      Variables:
+        RUST_BACKTRACE: 1
+        RUST_LOG: info
+
+Resources:
+  HelloWorldRustFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: rust-cargolambda
+    Properties:
+      CodeUri: functions/hello-world
+      FunctionUrlConfig:
+        AuthType: NONE
+      Events:
+        Rest:
+          Type: Api
+          Properties:
+            Path: /test
+            Method: GET
+        Http:
+          Type: HttpApi
+          Properties:
+            Path: /test
+            Method: GET
+
+  LatencyDriverFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: rust-cargolambda
+    Properties:
+      CodeUri: functions/driver
+      Environment:
+        Variables:
+          WORKER_LAMBDA_FUNCTION_NAME: !Ref LatencyWorkerFunction
+      Policies:
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource: !GetAtt LatencyWorkerFunction.Arn
+
+
+  LatencyWorkerFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: rust-cargolambda
+    Properties:
+      CodeUri: functions/worker
+      Environment:
+        Variables:
+          RUST_LAMBDA_FUNCTION_NAME: !Ref HelloWorldRustFunction
+          RUST_LAMBDA_FUNCTION_URL: !GetAtt HelloWorldRustFunctionUrl.FunctionUrl
+          RUST_HTTP_API_ENDPOINT: !Sub 'https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/test'
+          RUST_REST_API_ENDPOINT: !Sub 'https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/test/'
+      Policies:
+        - Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource: !GetAtt HelloWorldRustFunction.Arn
+            - Effect: Allow
+              Action:
+                - cloudwatch:PutMetricData
+              Resource: "*"
+
+
+Outputs:
+  RestApiUrl:
+    Description: The API Gateway endpoint for the HelloWorldRustFunction
+    Value: !Sub 'https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/test/'
+  HttpApiUrl:
+    Description: The HTTP API endpoint for the HelloWorldRustFunction
+    Value: !Sub 'https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/test'
+  FunctionUrl:
+    Description: The FunctionUrl for the HelloWorldRustFunction
+    Value: !GetAtt HelloWorldRustFunctionUrl.FunctionUrl
